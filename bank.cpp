@@ -56,6 +56,7 @@ typedef struct _atm_data_t {
 
 } atm_data_t;
 
+/* read_lock accounts vector */
 void read_locker() {
     pthread_mutex_lock(&read_accounts_lock);
     accounts_read_count++;
@@ -64,6 +65,7 @@ void read_locker() {
     }
     pthread_mutex_unlock(&read_accounts_lock);
 }
+/* read_unlock accounts vector */
 void read_unlocker() {
     pthread_mutex_lock(&read_accounts_lock);
     accounts_read_count--;
@@ -74,10 +76,9 @@ void read_unlocker() {
 }
 
 void create_account(char* tokens[MAX_COMMAND], int atm_id) {
-
     /* readers-writers on accounts vector.
-     * here - we are looking for account with a given id, therefore we are readers. */
-    read_locker();
+     * here - we are writing new account to accounts vector, therefore we are writers. */
+    pthread_mutex_lock(&write_accounts_lock);
 
     Account new_account(atoi(tokens[1]), atoi(tokens[2]), atoi(tokens[3]), atm_id);
     if (accounts.find(new_account) != accounts.end()) {
@@ -85,28 +86,17 @@ void create_account(char* tokens[MAX_COMMAND], int atm_id) {
         log_file << "Error " << atm_id << ": Your transaction failed – account with the same id ("
                  << new_account.get_id() << ") exists" << endl;
         pthread_mutex_unlock(&log_lock);
-        usleep(1000000);
-
-        read_unlocker();
-        /* ------------------------------END READ TRANSACTION------------------------------ */
     } else {
-        read_unlocker();
-        /* ------------------------------END READ TRANSACTION------------------------------ */
-
-        /* readers-writers on accounts vector.
-         * here - we are writing new account to accounts vector, therefore we are writers. */
-        pthread_mutex_lock(&write_accounts_lock);
-
         accounts.insert(new_account);
         pthread_mutex_lock(&log_lock);
         log_file << atm_id << ": New account id is " << new_account.get_id() << " with password "
-                 << new_account.get_password() << " and initial balance " <<  new_account.get_balance() << endl;
+                 << new_account.get_password() << " and initial balance " << new_account.get_balance() << endl;
         pthread_mutex_unlock(&log_lock);
         usleep(1000000);
-
-        pthread_mutex_unlock(&write_accounts_lock);
-        /* ------------------------------END WRITE TRANSACTION------------------------------ */
     }
+
+    pthread_mutex_unlock(&write_accounts_lock);
+    /* ------------------------------END WRITE TRANSACTION------------------------------ */
 }
 
 void balance(char* tokens[MAX_COMMAND], int atm_id) {
@@ -122,23 +112,13 @@ void balance(char* tokens[MAX_COMMAND], int atm_id) {
         pthread_mutex_lock(&log_lock);
         log_file << "Error " << atm_id << ": Your transaction failed – account id " << tokens[1] << " does not exist" << endl;
         pthread_mutex_unlock(&log_lock);
-        usleep(1000000);
-
-        read_unlocker();
-        /* ------------------------------END READ TRANSACTION------------------------------ */
     } else { /* there is another account with that id */
-        /* first we want to release the lock because we are about
-         * to become readers in specific account,
-         * so we don't care that other thread will interacts with accounts in parallel */
-        read_unlocker();
-        /* ------------------------------END READ TRANSACTION------------------------------ */
-
-        /* one thread can write to account while another thread can read from another account
-         * therefore, we implemented the lock inside the account class */
-        /* we lock the accounts vector only while we looking for account iterator */
-        Account &non_const_account = const_cast<Account&> (*this_account_it);
+        Account &non_const_account = const_cast<Account &> (*this_account_it);
         non_const_account.log_balance(atm_id, atoi(tokens[2])); /* lock inside, sleep inside too */
     }
+
+    read_unlocker();
+    /* ------------------------------END READ TRANSACTION------------------------------ */
 }
 
 void vip(char* tokens[MAX_COMMAND], int atm_id) {
@@ -154,18 +134,13 @@ void vip(char* tokens[MAX_COMMAND], int atm_id) {
         pthread_mutex_lock(&log_lock);
         log_file << "Error " << atm_id << ": Your transaction failed – account id " << tokens[1] << " does not exist" << endl;
         pthread_mutex_unlock(&log_lock);
-        usleep(1000000);
-
-        read_unlocker();
-        /* ------------------------------END READ TRANSACTION------------------------------ */
     } else { /* there is an account with that id */
-        read_unlocker();
-        /* ------------------------------END READ TRANSACTION------------------------------ */
-
-        /* here - we are about to change vip status of account, therefore we'll become writers */
         Account &non_const_account = const_cast<Account&> (*this_account_it);
         non_const_account.log_change_vip(atm_id, atoi(tokens[2])); /* lock inside, sleep inside too */
     }
+
+    read_unlocker();
+    /* ------------------------------END READ TRANSACTION------------------------------ */
 }
 
 void deposit(char* tokens[MAX_COMMAND], int atm_id) {
@@ -181,18 +156,13 @@ void deposit(char* tokens[MAX_COMMAND], int atm_id) {
         pthread_mutex_lock(&log_lock);
         log_file << "Error " << atm_id << ": Your transaction failed – account id " << tokens[1] << " does not exist" << endl;
         pthread_mutex_unlock(&log_lock);
-        usleep(1000000);
-
-        read_unlocker();
-        /* ------------------------------END READ TRANSACTION------------------------------ */
     } else { /* there is an account with that id */
-        read_unlocker();
-        /* ------------------------------END READ TRANSACTION------------------------------ */
-
-        /* here - we about to change one account's balance, therefore we'll become writers */
         Account &non_const_account = const_cast<Account&> (*this_account_it);
         non_const_account.log_deposit(atm_id, atoi(tokens[2]), atoi(tokens[3])); /* lock inside, sleep inside too */
     }
+
+    read_unlocker();
+    /* ------------------------------END READ TRANSACTION------------------------------ */
 }
 
 void withdrew(char* tokens[MAX_COMMAND], int atm_id) {
@@ -208,18 +178,13 @@ void withdrew(char* tokens[MAX_COMMAND], int atm_id) {
         pthread_mutex_lock(&log_lock);
         log_file << "Error " << atm_id << ": Your transaction failed – account id " << tokens[1] << " does not exist" << endl;
         pthread_mutex_unlock(&log_lock);
-        usleep(1000000);
-
-        read_unlocker();
-        /* ------------------------------END READ TRANSACTION------------------------------ */
     } else { /* there is an account with that id */
-        read_unlocker();
-        /* ------------------------------END READ TRANSACTION------------------------------ */
-
-        /* here - we about to change one account's balance, therefore we'll become writers */
         Account &non_const_account = const_cast<Account&> (*this_account_it);
         non_const_account.log_withdrew(atm_id, atoi(tokens[2]), atoi(tokens[3]));
     }
+
+    read_unlocker();
+    /* ------------------------------END READ TRANSACTION------------------------------ */
 }
 
 void transfer(char* tokens[MAX_COMMAND], int atm_id) {
@@ -235,12 +200,9 @@ void transfer(char* tokens[MAX_COMMAND], int atm_id) {
         pthread_mutex_lock(&log_lock);
         log_file << "Error " << atm_id << ": Your transaction failed – account id " << tokens[1] << " does not exist" << endl;
         pthread_mutex_unlock(&log_lock);
-        usleep(1000000);
+    } else { /* there is a source account with that id */
 
-        read_unlocker();
-        /* ------------------------------END READ TRANSACTION------------------------------ */
-    } else { /* there is an account with that id */
-        /* before we release the lock, we want to look if target account exist */
+        /* we want to look if target account exist too*/
         Account fake_target_account(atoi(tokens[3]), -1, -1, -1);
         set<Account>::iterator fake_target_account_it;
         fake_target_account_it = accounts.find(fake_target_account);
@@ -249,22 +211,21 @@ void transfer(char* tokens[MAX_COMMAND], int atm_id) {
             pthread_mutex_lock(&log_lock);
             log_file << "Error " << atm_id << ": Your transaction failed – account id " << tokens[3] << " does not exist" << endl;
             pthread_mutex_unlock(&log_lock);
-
-            read_unlocker();
-            /* ------------------------------END READ TRANSACTION------------------------------ */
         } else {
-            /* we want to release the lock because we are about to become writers in specific two accounts */
-            read_unlocker();
-            /* ------------------------------END READ TRANSACTION------------------------------ */
-
-            /* we are about to become writers in those two accounts. we don't care about accounts vector.
-             * we lock first account's balance write lock, and inside that code section we lock also the second account's
-             * balance for write */
             Account &non_const_source_account = const_cast<Account&> (*fake_source_account_it);
             Account &non_const_target_account = const_cast<Account&> (*fake_target_account_it);
-            non_const_source_account.log_transfer(non_const_target_account, atm_id, atoi(tokens[2]), atoi(tokens[4]));
+            if (&non_const_source_account != &non_const_target_account) {
+                non_const_source_account.log_transfer(non_const_target_account, atm_id, atoi(tokens[2]), atoi(tokens[4]));
+            } else {
+                pthread_mutex_lock(&log_lock);
+                log_file << "Error " << atm_id << ": Your transaction failed – you can't transfer from account to itself " << tokens[3] << endl;
+                pthread_mutex_unlock(&log_lock);
+            }
         }
     }
+
+    read_unlocker();
+    /* ------------------------------END READ TRANSACTION------------------------------ */
 }
 
 void* atm_thread_func(void* arg) {

@@ -33,7 +33,6 @@ void Account::log_balance(int atm_id, int given_password) {
         pthread_mutex_lock(&log_lock);
         log_file << "Error " << atm_id << ": Your transaction failed – password for account id " << id_ << " is incorrect" << endl;
         pthread_mutex_unlock(&(log_lock));
-        usleep(1000000);
     } else {
         /* readers-writers mechanism on the balance.
          * we are readers here so: */
@@ -47,14 +46,13 @@ void Account::log_balance(int atm_id, int given_password) {
         pthread_mutex_lock(&log_lock);
         log_file << atm_id << ": Account " << id_ << " balance is " << balance_ << endl;
         pthread_mutex_unlock(&log_lock);
+        usleep(1000000);
 
         pthread_mutex_lock(&read_lock);
         read_count_ --;
         if (read_count_ == 0) {
             pthread_mutex_unlock(&write_lock);
         }
-        usleep(1000000);
-
         pthread_mutex_unlock(&read_lock);
     }
 }
@@ -68,7 +66,6 @@ void Account::log_change_vip(int atm_id, int given_password) {
         pthread_mutex_lock(&log_lock);
         log_file << "Error " << atm_id << ": Your transaction failed – password for account id " << id_ << " is incorrect" << endl;
         pthread_mutex_unlock(&(log_lock));
-        usleep(1000000);
     } else {
         /* readers-writers mechanism on the balance.
          * we are writers here so: */
@@ -90,7 +87,6 @@ void Account::log_deposit(int atm_id, int given_password, int amount) {
         pthread_mutex_lock(&log_lock);
         log_file << "Error " << atm_id << ": Your transaction failed – password for account id " << id_ << " is incorrect" << endl;
         pthread_mutex_unlock(&(log_lock));
-        usleep(1000000);
     } else {
         /* readers-writers mechanism on the balance.
          * we are writers here so: */
@@ -115,7 +111,6 @@ void Account::log_withdrew(int atm_id, int given_password, int amount) {
         pthread_mutex_lock(&log_lock);
         log_file << "Error " << atm_id << ": Your transaction failed – password for account id " << id_ << " is incorrect" << endl;
         pthread_mutex_unlock(&(log_lock));
-        usleep(1000000);
     } else {
         /* readers-writers mechanism on the balance.
          * here we also read from balance (to check that we have enough money to withdrew),
@@ -126,7 +121,6 @@ void Account::log_withdrew(int atm_id, int given_password, int amount) {
             pthread_mutex_lock(&log_lock);
             log_file << "Error " << atm_id << ": Your transaction failed – account id " << id_ << " balance is lower than " << amount << endl;
             pthread_mutex_unlock(&(log_lock));
-            usleep(1000000);
         } else {
             balance_ -= amount;
             pthread_mutex_lock(&log_lock);
@@ -150,17 +144,16 @@ void Account::log_transfer(Account &target_account, int atm_id, int given_passwo
         log_file << "Error " << atm_id << ": Your transaction failed – password for account id " << id_
                  << " is incorrect" << endl;
         pthread_mutex_unlock(&(log_lock));
-        usleep(1000000);
     } else {
         /* readers-writers mechanism on the balance.
          * here we also read from balance (to check that we have enough money to withdrew),
          * but it's one small action to perform, so we'll leave it under write_lock */
         pthread_mutex_lock(&write_lock);
+
         if (amount > balance_) {
             pthread_mutex_lock(&log_lock);
-            log_file << "Error " << atm_id << ": Your transaction failed – account id " << id_ << " balance is lower than " << endl;
+            log_file << "Error " << atm_id << ": Your transaction failed – account id " << id_ << " balance is lower than " << amount << endl;
             pthread_mutex_unlock(&(log_lock));
-            usleep(1000000);
         } else {
             balance_ -= amount;
             target_account.log_deposit_from_transfer(amount);
@@ -197,22 +190,20 @@ int Account::give_commission(double percentage) {
     pthread_mutex_unlock(&read_vip_lock);
 
     if (!isVIP_) {
-        pthread_mutex_lock(&read_vip_lock);
-        read_vip_count_--;
-        if (read_vip_count_ == 0) {
-            pthread_mutex_unlock(&write_vip_lock);
-        }
-        pthread_mutex_unlock(&read_vip_lock);
-        /* ------------------------------END READ TRANSACTION------------------------------ */
-
         pthread_mutex_lock(&write_lock);
-
         amount = round(balance_ * percentage);
         balance_ -= amount;
-
         pthread_mutex_unlock(&write_lock);
         /* ------------------------------END WRITE TRANSACTION------------------------------ */
     }
+
+    pthread_mutex_lock(&read_vip_lock);
+    read_vip_count_--;
+    if (read_vip_count_ == 0) {
+        pthread_mutex_unlock(&write_vip_lock);
+    }
+    pthread_mutex_unlock(&read_vip_lock);
+
     return amount;
 }
 
